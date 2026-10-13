@@ -138,6 +138,34 @@ public sealed class CrawlEngineIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Page_with_an_unknown_charset_is_still_parsed()
+    {
+        var store = await RunAsync("/bad-charset.html", maxDepth: 1);
+
+        Assert.Equal(JobStatus.Completed, store.Job.Status);
+        Assert.Null(store.Page(_site.Url("/bad-charset.html")).Page.Error);
+        Assert.Contains(store.Pages, p => p.Page.Url.AbsolutePath == "/about.html");
+    }
+
+    [Fact]
+    public async Task An_unexpected_error_on_one_page_does_not_fail_the_job()
+    {
+        var store = NewStore("/index.html", maxDepth: 1, maxPages: 200, cancelAfterPages: null);
+        var fetcher = new ThrowingFetcher(_services.GetRequiredService<IPageFetcher>(), failPath: "/about.html");
+        await new CrawlEngine(fetcher, store, NullLogger<CrawlEngine>.Instance).RunAsync(store.Job.Id, default);
+
+        Assert.Equal(JobStatus.Completed, store.Job.Status);
+        Assert.StartsWith("Unexpected error", store.Page(_site.Url("/about.html")).Page.Error);
+        Assert.Equal(5, store.Pages.Count); // the rest of depth 1 was still crawled
+    }
+
+    private sealed class ThrowingFetcher(IPageFetcher inner, string failPath) : IPageFetcher
+    {
+        public Task<FetchResult> FetchAsync(Uri url, CancellationToken ct) =>
+            url.AbsolutePath == failPath ? throw new InvalidOperationException("boom") : inner.FetchAsync(url, ct);
+    }
+
+    [Fact]
     public async Task Unknown_job_throws_so_the_message_can_be_dead_lettered()
     {
         var store = NewStore("/index.html", maxDepth: 2, maxPages: 200, cancelAfterPages: null);

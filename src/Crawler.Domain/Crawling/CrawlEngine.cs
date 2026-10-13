@@ -95,7 +95,25 @@ public sealed class CrawlEngine(IPageFetcher fetcher, ICrawlJobStore store, ILog
         return new CrawlOutcome.Finished(pageCount);
     }
 
+    /// <summary>
+    /// Bulkhead: whatever goes wrong while fetching or parsing one page becomes that page's error.
+    /// Only failures outside this method (e.g. the database) fail the message and retry the job.
+    /// </summary>
     private async Task<PageResult> CrawlPageAsync(Guid jobId, QueuedPage current, string startHost, CancellationToken ct)
+    {
+        try
+        {
+            return await FetchAndAnalyzeAsync(jobId, current, startHost, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Unexpected error crawling {Url}; recording it on the page", current.Url);
+            return new PageResult(jobId, startHost, current.Url, current.Depth, current.ParentPageId,
+                null, $"Unexpected error: {ex.Message}", [], 0, 0);
+        }
+    }
+
+    private async Task<PageResult> FetchAndAnalyzeAsync(Guid jobId, QueuedPage current, string startHost, CancellationToken ct)
     {
         var fetch = await fetcher.FetchAsync(current.Url, ct);
         if (!fetch.IsHtml)

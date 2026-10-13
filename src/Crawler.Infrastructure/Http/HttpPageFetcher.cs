@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+using System.Text;
 using Crawler.Domain.Crawling;
 using Microsoft.Extensions.Logging;
 using Polly.Timeout;
@@ -20,6 +20,12 @@ public sealed class HttpPageFetcher(HttpClient http, ILogger<HttpPageFetcher> lo
         "text/html", "application/xhtml+xml",
     };
 
+    /// <summary>The statuses SocketsHttpHandler auto-follows (304 etc. are not redirects to follow).</summary>
+    private static readonly HashSet<int> RedirectStatuses = [301, 302, 303, 307, 308];
+
+    // Makes legacy charsets such as windows-1252 and iso-8859-2 available to Encoding.GetEncoding.
+    static HttpPageFetcher() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
     public async Task<FetchResult> FetchAsync(Uri url, CancellationToken ct)
     {
         try
@@ -27,6 +33,10 @@ public sealed class HttpPageFetcher(HttpClient http, ILogger<HttpPageFetcher> lo
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
             var finalUri = response.RequestMessage?.RequestUri ?? url; // after redirects
             var status = (int)response.StatusCode;
+
+            if (RedirectStatuses.Contains(status))
+                return new FetchResult(finalUri, status, null,
+                    DescribeUnfollowedRedirect(finalUri, status, response.Headers.Location));
 
             if (!response.IsSuccessStatusCode)
                 return new FetchResult(finalUri, status, null, $"HTTP {status}");
@@ -39,7 +49,8 @@ public sealed class HttpPageFetcher(HttpClient http, ILogger<HttpPageFetcher> lo
                 return new FetchResult(finalUri, status, null, "Page too large");
 
             await response.Content.LoadIntoBufferAsync(MaxHtmlBytes); // throws if a chunked body runs past the cap
-            var html = await response.Content.ReadAsStringAsync(ct);  // honors the charset in Content-Type
+            var body = await response.Content.ReadAsByteArrayAsync(ct);
+            var html = DecodeBody(body, response.Content.Headers.ContentType?.CharSet);
             return new FetchResult(finalUri, status, html, null);
         }
         catch (Exception ex) when (IsFetchFailure(ex, ct))
@@ -47,6 +58,46 @@ public sealed class HttpPageFetcher(HttpClient http, ILogger<HttpPageFetcher> lo
             logger.LogInformation("Fetching {Url} failed after retries: {Error}", url, ex.Message);
             return new FetchResult(url, null, null, Describe(ex));
         }
+    }
+
+    /// <summary>
+    /// Decodes with the declared charset when .NET knows it, otherwise UTF-8 (what browsers fall back to).
+    /// A bogus charset (crawler-test.com serves some on purpose) must not fail the page.
+    /// </summary>
+    public static string DecodeBody(byte[] body, string? charset)
+    {
+        var encoding = Encoding.UTF8;
+        if (!string.IsNullOrWhiteSpace(charset))
+        {
+            try
+            {
+                encoding = Encoding.GetEncoding(charset.Trim(' ', '"', '\''));
+            }
+            catch (ArgumentException)
+            {
+                // Unknown charset: keep UTF-8.
+            }
+        }
+        return encoding.GetString(body);
+    }
+
+    /// <summary>
+    /// The handler follows these redirects automatically, so one that reaches us was declined:
+    /// an HTTPS → HTTP downgrade (refused for security; seen on quotes.toscrape.com) or too many hops.
+    /// </summary>
+    public static string DescribeUnfollowedRedirect(Uri requested, int status, Uri? location)
+    {
+        if (location is null)
+            return $"HTTP {status} redirect without a Location header";
+
+        // On Linux a relative header like "/next" parses as the absolute URI file:///next,
+        // so only trust it as absolute when it is http(s); otherwise resolve the original text.
+        var target = location.IsAbsoluteUri && location.Scheme is "http" or "https"
+            ? location
+            : new Uri(requested, location.OriginalString);
+        return requested.Scheme == Uri.UriSchemeHttps && target.Scheme == Uri.UriSchemeHttp
+            ? $"Redirect not followed: HTTPS to HTTP downgrade ({target.AbsoluteUri})"
+            : $"Redirect not followed (HTTP {status}, too many redirects?) to {target.AbsoluteUri}";
     }
 
     // A canceled *worker* (ct fired) must propagate so the message is not acked; everything else

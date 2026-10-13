@@ -34,6 +34,8 @@ public sealed class FixtureSite : IAsyncDisposable
         app.MapGet("/flaky.html", () => Interlocked.Increment(ref site._flakyCalls) == 1
             ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
             : Results.Content("<html><body><a href=\"/about.html\">About</a></body></html>", "text/html"));
+        app.MapGet("/bad-charset.html", () => Results.Text(
+            "<html><body><a href=\"/about.html\">About</a></body></html>", "text/html; charset=no-such-charset"));
         app.MapGet("/{**path}", (string? path) =>
         {
             var file = Path.Combine(Root, path ?? "index.html");
