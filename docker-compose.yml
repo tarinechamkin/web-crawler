@@ -1,0 +1,79 @@
+# Runs the whole system locally:  docker compose up --build
+#   API          http://localhost:5080        (health: /health)
+#   Worker       http://localhost:5081/health (scale out: docker compose up --scale worker=3)
+#   RabbitMQ UI  http://localhost:15672       (user/password: crawler / crawler)
+#   PostgreSQL   localhost:5432               (database/user/password: crawler)
+
+name: web-crawler
+
+x-connections: &connections
+  ConnectionStrings__Crawler: Host=postgres;Port=5432;Database=crawler;Username=crawler;Password=crawler
+  ConnectionStrings__RabbitMq: amqp://crawler:crawler@rabbitmq:5672
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: crawler
+      POSTGRES_USER: crawler
+      POSTGRES_PASSWORD: crawler
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d crawler"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq # RabbitMQ keys its data directory by hostname; keep it stable
+    environment:
+      RABBITMQ_DEFAULT_USER: crawler
+      RABBITMQ_DEFAULT_PASS: crawler
+    ports: ["5672:5672", "15672:15672"]
+    volumes: [rabbitdata:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Crawler.Api/Dockerfile
+    environment:
+      <<: *connections
+      Cors__Origins__0: http://localhost:5173
+      Cors__Origins__1: http://localhost:3000
+    ports: ["5080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck: # busybox wget ships with the alpine image
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/Crawler.Worker/Dockerfile
+    environment:
+      <<: *connections
+    ports: ["5081-5085:8080"] # a port range so `--scale worker=N` (N ≤ 5) does not clash
+    depends_on:
+      api: { condition: service_healthy } # the API applies DB migrations on startup
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  pgdata:
+  rabbitdata:
