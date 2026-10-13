@@ -25,4 +25,13 @@
     <ProjectReference Include="..\..\src\Crawler.Infrastructure\Crawler.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Kestrel, used to serve the HTML fixtures over real HTTP in the integration test -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
