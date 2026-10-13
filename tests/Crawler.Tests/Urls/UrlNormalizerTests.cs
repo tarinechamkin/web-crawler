@@ -56,6 +56,13 @@ public class UrlNormalizerTests
         Assert.False(UrlNormalizer.TryNormalize(href, Page, out _));
     }
 
+    [Fact]
+    public void Rejects_urls_longer_than_the_limit()
+    {
+        var tooLong = "/" + new string('a', UrlNormalizer.MaxUrlLength);
+        Assert.False(UrlNormalizer.TryNormalize(tooLong, Page, out _));
+    }
+
     [Theory]
     [InlineData("https://example.com/path#x", true)]
     [InlineData("example.com", false)]       // no scheme → not absolute

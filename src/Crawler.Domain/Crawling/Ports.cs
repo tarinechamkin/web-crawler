@@ -36,6 +36,7 @@ public interface ICrawlJobStore
 
 public sealed record PageResult(
     Guid JobId,
+    string StartHost,
     Uri Url,
     int Depth,
     long? ParentPageId,

@@ -101,13 +101,13 @@ public sealed class CrawlEngine(IPageFetcher fetcher, ICrawlJobStore store, ILog
         if (!fetch.IsHtml)
         {
             logger.LogDebug("Skipping {Url}: {Error}", current.Url, fetch.Error);
-            return new PageResult(jobId, current.Url, current.Depth, current.ParentPageId,
+            return new PageResult(jobId, startHost, current.Url, current.Depth, current.ParentPageId,
                 fetch.StatusCode, fetch.Error ?? "Not an HTML page", [], 0, 0);
         }
 
         var links = HtmlLinkExtractor.ExtractLinks(fetch.Html!, fetch.FinalUri);
         var internalCount = links.Count(link => DomainLinkRatio.IsInternal(link, startHost));
-        return new PageResult(jobId, current.Url, current.Depth, current.ParentPageId,
+        return new PageResult(jobId, startHost, current.Url, current.Depth, current.ParentPageId,
             fetch.StatusCode, null, links, internalCount, DomainLinkRatio.Calculate(links, startHost));
     }
 

@@ -7,6 +7,12 @@ namespace Crawler.Domain.Urls;
 public static class UrlNormalizer
 {
     /// <summary>
+    /// Longer URLs are rejected: browsers commonly cap around 2k, and PostgreSQL B-tree index
+    /// entries (our unique (job_id, url) key) cannot exceed ~2.7 KB.
+    /// </summary>
+    public const int MaxUrlLength = 2048;
+
+    /// <summary>
     /// Resolves <paramref name="href"/> against <paramref name="baseUri"/> and normalizes it.
     /// Returns false for links we never count or follow: empty values, pure in-page anchors ("#x"),
     /// and non-http(s) schemes such as mailto:, tel:, javascript:, data:.
@@ -27,8 +33,7 @@ public static class UrlNormalizer
         if (absolute.Scheme != Uri.UriSchemeHttp && absolute.Scheme != Uri.UriSchemeHttps)
             return false;
 
-        normalized = Canonicalize(absolute);
-        return true;
+        return TryCanonicalize(absolute, out normalized);
     }
 
     /// <summary>Normalizes an already-absolute URL (e.g. the job's start URL).</summary>
@@ -40,13 +45,15 @@ public static class UrlNormalizer
         if (absolute.Scheme != Uri.UriSchemeHttp && absolute.Scheme != Uri.UriSchemeHttps)
             return false;
 
-        normalized = Canonicalize(absolute);
-        return true;
+        return TryCanonicalize(absolute, out normalized);
     }
 
     // System.Uri already lowercases scheme + host and resolves "." / ".." segments.
     // HttpRequestUrl = scheme + host + non-default port + path + query: it drops the
     // fragment, the user-info and default ports (":80" / ":443") for us.
-    private static Uri Canonicalize(Uri absolute) =>
-        new(absolute.GetComponents(UriComponents.HttpRequestUrl, UriFormat.UriEscaped));
+    private static bool TryCanonicalize(Uri absolute, out Uri normalized)
+    {
+        normalized = new Uri(absolute.GetComponents(UriComponents.HttpRequestUrl, UriFormat.UriEscaped));
+        return normalized.AbsoluteUri.Length <= MaxUrlLength;
+    }
 }
