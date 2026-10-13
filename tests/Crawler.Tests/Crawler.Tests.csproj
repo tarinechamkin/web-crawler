@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Crawler.Infrastructure\Crawler.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Crawler.Api\Crawler.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>

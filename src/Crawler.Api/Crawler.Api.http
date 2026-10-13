@@ -1,0 +1,23 @@
+# Sample requests (VS Code "REST Client" extension or Rider/Visual Studio).
+@api = http://localhost:5080
+
+### Create a job
+POST {{api}}/api/jobs
+Content-Type: application/json
+
+{ "url": "https://example.com", "maxDepth": 1 }
+
+### Job status (paste the jobId from above)
+GET {{api}}/api/jobs/00000000-0000-0000-0000-000000000000
+
+### Tree
+GET {{api}}/api/jobs/00000000-0000-0000-0000-000000000000/tree
+
+### History (newest first; pass nextCursor to get the next page)
+GET {{api}}/api/jobs?limit=20
+
+### Cancel
+POST {{api}}/api/jobs/00000000-0000-0000-0000-000000000000/cancel
+
+### Health
+GET {{api}}/health

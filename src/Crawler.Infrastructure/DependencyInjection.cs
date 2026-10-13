@@ -1,6 +1,7 @@
 using System.Net;
 using Crawler.Domain.Crawling;
 using Crawler.Infrastructure.Http;
+using Crawler.Infrastructure.Messaging;
 using Crawler.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -21,6 +22,14 @@ public static class DependencyInjection
         services.AddDbContext<CrawlerDbContext>(options => ConfigureDb(options, connectionString));
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<ICrawlJobStore, CrawlJobStore>();
+        return services;
+    }
+
+    public static IServiceCollection AddCrawlerMessaging(this IServiceCollection services)
+    {
+        services.AddSingleton<RabbitMqConnection>();
+        services.AddSingleton<RabbitMqPublisher>();
+        services.AddSingleton<ICrawlJobPublisher>(sp => sp.GetRequiredService<RabbitMqPublisher>());
         return services;
     }
 
